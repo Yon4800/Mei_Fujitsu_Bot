@@ -93,6 +93,19 @@ async def resolve_all_bots():
         "Lichee_RV_Nano_E": os.getenv("BOT_USER_LICHEE", "Lichee_RV_Nano_E"),
         "Mei_Fujitsu": MY_USERNAME
     }
+    try:
+        from shared_economy_helper import load_economy
+        econ_data = load_economy()
+        if "bots" in econ_data:
+            for b_name, b_info in econ_data["bots"].items():
+                if isinstance(b_info, dict) and "id" in b_info and "username" in b_info:
+                    RESOLVED_BOTS[b_name] = {
+                        "id": b_info["id"],
+                        "username": b_info["username"]
+                    }
+    except Exception as e:
+        print(f"Warning: Could not load bots from economy file: {e}")
+
     for b_name, uname in env_usernames.items():
         if not uname:
             continue
@@ -265,7 +278,7 @@ async def on_note(note):
                 return
                 
         is_mentioned = (note.get("mentions") and MY_ID in note["mentions"])
-        if not is_mentioned:
+        if not is_mentioned and f"@{MY_USERNAME}".lower() not in note_text.lower():
             return
             
         bots = RESOLVED_BOTS

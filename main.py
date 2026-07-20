@@ -4,7 +4,8 @@ import websockets
 from misskey import Misskey, NoteVisibility
 from dotenv import load_dotenv
 import os
-from openrouter_helper import generate_llm_reply
+from google import genai
+from google.genai import types
 import schedule
 from datetime import datetime
 import random
@@ -16,8 +17,16 @@ from state_manager import StateManager
 load_dotenv()
 Token = os.getenv("TOKEN")
 Server = os.getenv("SERVER")
+Apikey = os.getenv("APIKEY")  # Gemini API Key
+
+if not Token or not Server or not Apikey:
+    print("WARNING: SERVER, TOKEN, or APIKEY is not set in environment variables.")
+
 mk = Misskey(Server)
 mk.token = Token
+
+# Google Genai Client Initialization
+client = genai.Client(api_key=Apikey)
 
 # State Manager Initialization
 state_manager = StateManager()
@@ -321,8 +330,10 @@ async def on_note(note):
         
         conversation_messages = []
         for msg in history:
-            role = "assistant" if msg["role"] in ["assistant", "model"] else "user"
-            conversation_messages.append({"role": role, "content": msg["content"]})
+            role = "model" if msg["role"] == "assistant" else "user"
+            conversation_messages.append(
+                types.Content(role=role, parts=[types.Part(text=msg["content"])])
+            )
             
         instruction = seikaku + f"\n現在時刻は {datetime.now().strftime('%Y年%m月%d日 %H:%M')} です。\n"
         if next_bot:
@@ -350,10 +361,13 @@ async def on_note(note):
         await asyncio.sleep(random.uniform(3.0, 7.0))
         
         try:
-            reply_text = generate_llm_reply(
-                system_instruction=instruction,
-                history=conversation_messages
+            response = client.models.generate_content(
+                model="gemini-3.1-flash-lite",
+                config=types.GenerateContentConfig(system_instruction=instruction),
+                contents=conversation_messages
             )
+            reply_text = response.text.strip()
+            reply_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", reply_text).strip()
             
             if next_bot:
                 reply_text += f"\nねえ、@{next_bot['username']} はどう思う？ +TALK"
@@ -470,10 +484,12 @@ async def on_note(note):
                 + "このシステムの稼働状況の数値を正しくキャラクターとして伝えながら、ミニPCサーバーのメイさんとして、お姉さんらしく300文字以内で稼働報告を作成してください。数値だけは絶対に改ざんしたり嘘をでっち上げたりせず、そのまま記述してください。"
             )
             
-            reply_note(generate_llm_reply(
-                system_instruction=system_message,
-                user_prompt="システム統計を報告してください。"
-            ))
+            response = client.models.generate_content(
+                model="gemini-3.1-flash-lite",
+                config=types.GenerateContentConfig(system_instruction=system_message),
+                contents=["システム統計を報告してください。"]
+            )
+            reply_note(re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text).strip())
 
         elif is_m_cmd:
             system_message = (
@@ -486,10 +502,12 @@ async def on_note(note):
                 + "この記憶内容についても、お姉さんらしく自然な会話の中で触れて「あなたのことはこういう風に覚えているよ」と教えてあげてください。好感度の具体的な数値は含めず、態度と言葉遣いだけで好感度の高さを表現してください。全体で300文字以内で作成してください。"
             )
             
-            reply_note(generate_llm_reply(
-                system_instruction=system_message,
-                user_prompt="好感度と記憶についてお姉さんらしく答えてください。"
-            ))
+            response = client.models.generate_content(
+                model="gemini-3.1-flash-lite",
+                config=types.GenerateContentConfig(system_instruction=system_message),
+                contents=["好感度と記憶についてお姉さんらしく答えてください。"]
+            )
+            reply_note(re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text).strip())
 
         elif is_llm_cmd:
             state_manager.increment_conversation(user_id, user_name)
@@ -498,11 +516,41 @@ async def on_note(note):
             user_input = note_text.replace("+LLM", "").strip()
             user_input = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input).strip()
             
-            reply_text = generate_llm_reply(
-                system_instruction=system_message,
-                user_prompt=user_input,
-                history=history[:-1]
+            conversation_messages = []
+            for msg in history[:-1]:
+                role = "model" if msg["role"] == "assistant" else "user"
+                conversation_messages.append(
+                    types.Content(role=role, parts=[types.Part(text=msg["content"])])
+                )
+            
+            # Add latest input
+            conversation_messages.append(
+                types.Content(role="user", parts=[types.Part(text=user_input)])
             )
+            
+            system_message = (
+                seikaku
+                + coin_info
+                + f"\n現在時刻は {current_time} です。\n"
+                + f"現在、あなたに話しかけているのは {user_name} です。現在の彼らのあなたへの好感度は {affection} です（0〜100）。この好感度に応じた態度（80-100:とても好意的、40-79:普通に親しい、1-39:少し冷たい、0:極めて冷淡）で会話に答えてください。具体的な好感度の数値（例：50など）はメッセージ本文に含めないでください。\n"
+                + f"【対話相手のこれまでの記憶】\n"
+                + f"あなたは {user_name} について以下のように記憶しています: 『{user_memory}』\n"
+                + "会話はこの記憶に基づいて行ってください。全く的外れなことを言ったり、以前の会話からわかる矛盾したことを言わないように注意してください。\n"
+                + "\n"
+                + f"【記憶の更新指示】\n"
+                + f"今回の会話を通じて、相手のプロフィール（趣味、仕事、性格、よく話す話題、あなたへの接し方の変化など）について新しい情報や変化が分かった場合は、これまでの記憶も含めた最新の記憶の要約（最大100文字）を返答メッセージの最後に [USER_MEMORY: <最新の記憶内容>] タグの形式で出力してください。もし新しい情報がなく、これまでの記憶から更新する必要がなければ、このタグは出力しないでください。タグ内の文脈は主語（「{user_name}は」）を明確にしてください。\n"
+                + "\n"
+                + "【好感度変動指示】\n"
+                + "会話の内容（親切さ、あなたを喜ばせたか、または失礼・不快だったか）に応じて好感度を変動させる場合は、返答の最後に [AFFECTION: +1]、[AFFECTION: -1] または [AFFECTION: 0] タグを付与してください。特別なやり取りがない日常会話なら「0」にしてください。\n"
+            )
+            
+            response = client.models.generate_content(
+                model="gemini-3.1-flash-lite",
+                config=types.GenerateContentConfig(system_instruction=system_message),
+                contents=conversation_messages
+            )
+            
+            reply_text = response.text
             
             # Parse affection tag
             delta = 0

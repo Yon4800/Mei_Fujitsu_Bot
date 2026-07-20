@@ -5,6 +5,19 @@ from misskey import Misskey, NoteVisibility
 from dotenv import load_dotenv
 import os
 from openrouter_helper import generate_llm_reply
+import schedule
+from datetime import datetime
+import random
+import re
+import requests
+import psutil
+from state_manager import StateManager
+
+load_dotenv()
+Token = os.getenv("TOKEN")
+Server = os.getenv("SERVER")
+mk = Misskey(Server)
+mk.token = Token
 
 # State Manager Initialization
 state_manager = StateManager()

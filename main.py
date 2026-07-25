@@ -362,7 +362,7 @@ async def on_note(note):
         
         try:
             response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.5-flash-lite",
                 config=types.GenerateContentConfig(system_instruction=instruction),
                 contents=conversation_messages
             )
@@ -485,7 +485,7 @@ async def on_note(note):
             )
             
             response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.5-flash-lite",
                 config=types.GenerateContentConfig(system_instruction=system_message),
                 contents=["システム統計を報告してください。"]
             )
@@ -503,7 +503,7 @@ async def on_note(note):
             )
             
             response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.5-flash-lite",
                 config=types.GenerateContentConfig(system_instruction=system_message),
                 contents=["好感度と記憶についてお姉さんらしく答えてください。"]
             )
@@ -545,7 +545,7 @@ async def on_note(note):
             )
             
             response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.5-flash-lite",
                 config=types.GenerateContentConfig(system_instruction=system_message),
                 contents=conversation_messages
             )

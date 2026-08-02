@@ -4,6 +4,7 @@ import websockets
 from misskey import Misskey, NoteVisibility
 from dotenv import load_dotenv
 import os
+from collections import OrderedDict
 from google import genai
 from google.genai import types
 import schedule
@@ -81,7 +82,7 @@ def register_bot(bot_name, mk):
         print(f"Error registering bot in economy: {e}")
 
 RESOLVED_BOTS = {}
-PROCESSED_NOTES = set()
+PROCESSED_NOTES = OrderedDict()
 
 async def resolve_all_bots():
     global RESOLVED_BOTS
@@ -262,9 +263,9 @@ async def on_note(note):
         
     if note_id in PROCESSED_NOTES:
         return
-    PROCESSED_NOTES.add(note_id)
-    if len(PROCESSED_NOTES) > 200:
-        PROCESSED_NOTES.clear()
+    PROCESSED_NOTES[note_id] = True
+    if len(PROCESSED_NOTES) > 1000:
+        PROCESSED_NOTES.popitem(last=False)
 
     note_text = note.get("text") or ""
     
@@ -512,12 +513,12 @@ async def on_note(note):
         elif is_llm_cmd:
             state_manager.increment_conversation(user_id, user_name)
             
-            history = get_conversation_history(note["id"])
+            history = get_conversation_history(note.get("replyId"))
             user_input = note_text.replace("+LLM", "").strip()
             user_input = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input).strip()
             
             conversation_messages = []
-            for msg in history[:-1]:
+            for msg in history:
                 role = "model" if msg["role"] == "assistant" else "user"
                 conversation_messages.append(
                     types.Content(role=role, parts=[types.Part(text=msg["content"])])
